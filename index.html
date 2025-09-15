@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Safe Camera Capture</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; padding: 20px; background:#f7f7fb; }
+    .card { background:white; border: 1px solid #e6e9ef; padding: 18px; border-radius: 12px; max-width: 820px; margin: 24px auto; box-shadow: 0 6px 18px rgba(38,43,77,0.06); }
+    video { width: 100%; max-height: 480px; background: #000; border-radius: 8px; }
+    canvas { display: none; }
+    button { padding: 10px 16px; margin: 8px 6px 0 0; border-radius: 8px; cursor: pointer; border: none; background:#2563eb; color:white; }
+    button.ghost { background:#efefef; color:#111; }
+    .muted { color: #666; font-size: 0.9rem; }
+    .controls { display:flex; flex-wrap:wrap; gap:8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Safe Camera Capture — Explicit Consent Only</h1>
+    <p><strong>Important:</strong> This page accesses your camera <em>only after you allow it</em>. Photo is uploaded to server and forwarded to Telegram admin <strong>only with your consent</strong>.</p>
+    <p class="muted">You can stop camera anytime.</p>
+
+    <div class="controls">
+      <button id="startBtn">Allow camera & start preview</button>
+      <button id="captureBtn" disabled>Capture photo & upload</button>
+      <button id="stopBtn" class="ghost" disabled>Stop camera</button>
+      <button id="consentLogBtn" class="ghost" aria-pressed="false">Notify Admin</button>
+    </div>
+
+    <div>
+      <video id="preview" autoplay playsinline></video>
+      <canvas id="hiddenCanvas"></canvas>
+    </div>
+
+    <p id="status" class="muted">Status: idle</p>
+  </div>
+
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const captureBtn = document.getElementById('captureBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const consentLogBtn = document.getElementById('consentLogBtn');
+    const preview = document.getElementById('preview');
+    const canvas = document.getElementById('hiddenCanvas');
+    const status = document.getElementById('status');
+
+    let stream = null;
+    let notifyAdmin = false;
+
+    function setStatus(txt){ status.textContent = 'Status: ' + txt; }
+
+    startBtn.addEventListener('click', async () => {
+      try{
+        setStatus('requesting camera permission...');
+        stream = await navigator.mediaDevices.getUserMedia({ video:{facingMode:'user'}, audio:false });
+        preview.srcObject = stream;
+        captureBtn.disabled = false;
+        stopBtn.disabled = false;
+        setStatus('camera active — click "Capture" to take photo.');
+      } catch(err){
+        console.error(err);
+        setStatus('camera access denied or unavailable.');
+        alert('Camera access denied or unavailable.');
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      if(stream) stream.getTracks().forEach(t=>t.stop());
+      preview.srcObject = null;
+      stream = null;
+      captureBtn.disabled = true;
+      stopBtn.disabled = true;
+      setStatus('camera stopped');
+    });
+
+    consentLogBtn.addEventListener('click', ()=>{
+      notifyAdmin = !notifyAdmin;
+      consentLogBtn.setAttribute('aria-pressed', String(notifyAdmin));
+      consentLogBtn.textContent = notifyAdmin?'Notify Admin ✓':'Notify Admin';
+    });
+
+    captureBtn.addEventListener('click', async ()=>{
+      try{
+        if(!stream) throw new Error('camera not active');
+        if(!confirm('Are you sure you want to take a photo and upload it?')) return;
+
+        setStatus('capturing photo...');
+        const w = preview.videoWidth || 640;
+        const h = preview.videoHeight || 480;
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(preview,0,0,w,h);
+
+        const blob = await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.85));
+        if(!blob) throw new Error('failed to create image blob');
+
+        setStatus('uploading photo...');
+        const metadata = {
+          consent:true,
+          timestamp:new Date().toISOString(),
+          userAgent:navigator.userAgent,
+          screen:`${window.screen.width}x${window.screen.height}`,
+          notifyAdmin
+        };
+
+        const fd = new FormData();
+        fd.append('photo', blob, 'capture.jpg');
+        fd.append('metadata', JSON.stringify(metadata));
+
+        const resp = await fetch('/api/upload_photo', { method:'POST', body:fd });
+        const json = await resp.json();
+        if(!resp.ok) throw new Error(json?.error || 'upload failed');
+
+        setStatus('upload complete');
+        alert('Photo uploaded successfully.');
+      } catch(err){
+        console.error(err);
+        setStatus('error: '+(err.message||err));
+        alert('Error capturing/uploading photo: '+(err.message||err));
+      }
+    });
+
+    window.addEventListener('beforeunload',()=>{ if(stream) stream.getTracks().forEach(t=>t.stop()); });
+  </script>
+</body>
+</html>
