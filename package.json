@@ -1,0 +1,16 @@
+{
+  "name": "safe-camera-consent",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "form-data": "^4.0.0",
+    "formidable": "^2.1.1",
+    "node-fetch": "^2.6.7",
+    "dotenv": "^16.1.0",
+    "@supabase/supabase-js": "^2.32.0"
+  }
+}
